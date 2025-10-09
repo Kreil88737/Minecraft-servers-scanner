@@ -30,12 +30,10 @@ def main_menu():
     print('1 - загрузить ips')
     print('2 - начать скан')
     print('3 - настройки')
-    print('4 - заспуфить моды')
     return input('>')
 
 
 def parse_ip_range(ip_range):
-    """Парсит диапазон IP вида x.x.x.x/y или отдельный IP x.x.x.x"""
     try:
         if '/' in ip_range:
             # Это диапазон CIDR
@@ -77,7 +75,6 @@ def parse_ip_range(ip_range):
 
 
 def read_ip_ranges_simple(filename):
-    """Читает файл с диапазонами IP и возвращает все IP"""
     all_ips = []
 
     try:
@@ -97,9 +94,8 @@ def read_ip_ranges_simple(filename):
     return all_ips
 
 
-# Версия с генератором (для экономии памяти)
+
 def read_ip_ranges_generator(filename):
-    """Генератор, который читает файл и возвращает IP по одному"""
     try:
         with open(filename, 'r', encoding='utf-8') as file:
             for line in file:
@@ -114,9 +110,7 @@ def read_ip_ranges_generator(filename):
         print(f"Ошибка при чтении файла: {e}")
 
 
-# Дополнительная функция для валидации IP
 def is_valid_ip(ip_str):
-    """Проверяет, является ли строка валидным IP-адресом"""
     try:
         octets = ip_str.split('.')
         if len(octets) != 4:
@@ -132,7 +126,7 @@ def is_valid_ip(ip_str):
 
 
 
-ips = []  # Инициализация пустого списка IP
+ips = []
 
 async def main():
     global timeout, rang
@@ -183,21 +177,10 @@ async def main():
             elif settings == '3':
                 rang = input('введите радиус (1 - 65535) по умолчанию >')
 
-        elif res == '4':
-            print("-Выберите загрузчик-")
-            print("1 - фордж")
-            print("2 - нео фордж")
-            res = input(">")
-
-            if res == 1:
-                serv = input('введите ip сервера')
-                mods = input('введите папку с модами')
-
-
-
         else:
             clear_console()
             print("Неверный выбор!")
 
 if __name__ == '__main__':
+
     asyncio.run(main())
