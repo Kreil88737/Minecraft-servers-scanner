@@ -2,6 +2,21 @@ import asyncio
 import socket
 from typing import List
 import time
+import sys
+import os
+from contextlib import contextmanager
+
+
+@contextmanager
+def suppress_stderr():
+    """Контекстный менеджер для подавления stderr"""
+    with open(os.devnull, "w") as devnull:
+        old_stderr = sys.stderr
+        sys.stderr = devnull
+        try:
+            yield
+        finally:
+            sys.stderr = old_stderr
 
 
 class AsyncPortScanner:
@@ -14,19 +29,39 @@ class AsyncPortScanner:
 
     async def check_port(self, host: str, port: int, open_ports: List[int]) -> None:
         async with self.semaphore:
+            writer = None
+            reader = None
             try:
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_connection(host, port),
-                    timeout=self.timeout
-                )
-                writer.close()
-                await writer.wait_closed()
+                # Подавляем stderr для скрытия socket.send() ошибок
+                with suppress_stderr():
+                    # Создаем соединение с таймаутом
+                    reader, writer = await asyncio.wait_for(
+                        asyncio.open_connection(host, port),
+                        timeout=self.timeout
+                    )
                 open_ports.append(port)  # Добавляем только номер порта
-            except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
-                pass  # Игнорируем закрытые порты
+            except (asyncio.TimeoutError, ConnectionRefusedError, OSError, ConnectionResetError):
+                pass  # Игнорируем закрытые порты и сетевые ошибки
             except Exception:
-                pass  # Игнорируем другие ошибки
+                pass  # Игнорируем все остальные ошибки
             finally:
+                # Максимально безопасное закрытие соединения
+                if writer is not None:
+                    try:
+                        # Подавляем stderr при закрытии соединения
+                        with suppress_stderr():
+                            # Сначала пытаемся корректно закрыть
+                            if not writer.is_closing():
+                                writer.close()
+                            # Ждем закрытия с таймаутом
+                            try:
+                                await asyncio.wait_for(writer.wait_closed(), timeout=0.1)
+                            except asyncio.TimeoutError:
+                                pass  # Игнорируем таймаут при закрытии
+                    except Exception:
+                        pass  # Полностью игнорируем все ошибки закрытия
+                
+                # Обновляем прогресс в любом случае
                 self.scanned_ports += 1
                 self.update_progress()
 
