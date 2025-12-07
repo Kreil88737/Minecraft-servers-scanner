@@ -26,22 +26,35 @@ def is_valid_lan_motd(motd: str) -> bool:
 
 async def check(ip, port, semaphore, timeout=3.0):
     async with semaphore:
+        server = None
         try:
             server = JavaServer(ip, port)
-            status = await asyncio.wait_for(server.async_status(), timeout=timeout)
 
-            # Пробуем query
+            # Проверяем статус сервера с таймаутом
+            try:
+                status = await asyncio.wait_for(server.async_status(), timeout=timeout)
+            except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+                # Сервер не отвечает, пропускаем
+                return
+            except Exception:
+                # Другие ошибки соединения, пропускаем
+                return
+
+            # Пробуем query (необязательно)
+            query_status = False
             try:
                 await asyncio.wait_for(server.async_query(), timeout=timeout)
                 query_status = True
+            except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+                pass  # Query не поддерживается или недоступен
             except Exception:
-                query_status = False
+                pass  # Другие ошибки query
 
             motd = clean_motd(status.description)
             online = getattr(status.players, "online", 0) or 0
             max_players = getattr(status.players, "max", 0)
 
-            # Проверяем по условиям LAN
+            # Проверяем LAN формат
             is_lan = (
                 " - " in motd and
                 online >= 1 and
@@ -51,34 +64,53 @@ async def check(ip, port, semaphore, timeout=3.0):
 
             server_type = "🟠 LAN-мир (открыт для сети)" if is_lan else "🟢 Публичный сервер"
 
-            # Попытка получить имена игроков
+            # Получаем имена игроков
             players_sample = None
             try:
                 sample = status.players.sample
                 if sample:
                     names = []
                     for p in sample:
-                        if isinstance(p, dict) and "name" in p:
-                            names.append(p["name"])
-                        else:
-                            names.append(getattr(p, "name", str(p)))
-                    players_sample = ", ".join(names)
+                        try:
+                            if isinstance(p, dict) and "name" in p:
+                                names.append(p["name"])
+                            else:
+                                names.append(getattr(p, "name", str(p)))
+                        except Exception:
+                            continue  # Пропускаем проблемных игроков
+                    if names:
+                        players_sample = ", ".join(names)
             except Exception:
-                players_sample = None
+                pass
 
             latency = f"{round(status.latency)} ms" if status.latency is not None else "n/a"
 
-            print(f"{ip}:{port} │ {status.version.name} │ "
-                  f"{online}/{max_players} │ {latency} │ query:{query_status} │ "
-                  f"{server_type} │ MOTD: {motd}"
-                  + (f" │ Players: {players_sample}" if players_sample else ""))
+            # Выводим только отвечающие серверы
+            try:
+                version_name = getattr(status.version, "name", "Unknown")
+                print(f"{ip}:{port} │ {version_name} │ "
+                      f"{online}/{max_players} │ {latency} │ query:{query_status} │ "
+                      f"{server_type} │ MOTD: {motd}"
+                      + (f" │ Players: {players_sample}" if players_sample else ""))
+            except Exception:
+                # Если не можем вывести информацию, пропускаем
+                return
 
+            # Записываем в файл только если есть онлайн игроки
             if online > 0:
-                with open("result.txt", "a", encoding="utf-8") as file:
-                    file.write(f"\n{ip}:{port}")
+                try:
+                    with open("result.txt", "a", encoding="utf-8") as file:
+                        file.write(f"\n{ip}:{port}")
+                except Exception:
+                    pass  # Игнорируем ошибки записи в файл
 
+        except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+            # Сетевые ошибки - пропускаем молча
+            return
         except Exception:
-            pass
+            # Любые другие ошибки пропускаем молча
+            return
+
 
 
 async def scan_servers(ip: str, ports, timeout: float = 1.2):
